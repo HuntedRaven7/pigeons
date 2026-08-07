@@ -6,7 +6,7 @@ cp -avf "/ctx/system_files"/. /
 
 dnf -y install dnf5-plugins 
 
-dnf -y copr enable lionheartp/Hyprland
+dnf -y copr enable --hub copr.fedorainfracloud.org lionheartp/Hyprland fedora-44-x86_64
 dnf -y install hyprland
 dnf -y copr disable lionheartp/Hyprland
 
