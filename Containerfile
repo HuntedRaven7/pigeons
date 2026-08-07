@@ -8,6 +8,8 @@
 ARG IMAGE_REGISTRY="ghcr.io/huntedraven7"
 ARG DEFAULT_TAG="latest"
 ARG KERNEL_VERSION="7.1.6-ogc4.1.fc44.x86_64"
+ARG BREW_IMAGE="ghcr.io/ublue-os/brew:latest"
+ARG BREW_IMAGE_SHA=""
 
 FROM quay.io/hummingbird-community/bootc-os:latest AS base
 
@@ -15,12 +17,16 @@ FROM ${IMAGE_REGISTRY}/kde:${DEFAULT_TAG} AS kde
 FROM ${IMAGE_REGISTRY}/dev:${DEFAULT_TAG} AS dev
 FROM ${IMAGE_REGISTRY}/gaming:${DEFAULT_TAG} AS gaming
 
+# Homebrew package manager 
+FROM ${BREW_IMAGE}@${BREW_IMAGE_SHA} AS brew
+
 # NVIDIA driver + kmod, built against the OGC fc44 kernel
 FROM ghcr.io/ublue-os/akmods-nvidia-open:ogc-44-${KERNEL_VERSION} AS akmods-nvidia
 
 FROM base
 
-# Layer the f44 task images onto the Hummingbird base
+# Layer the f44 task images onto the Hummingbird base + Brew
+COPY --from=brew /system_files /system_files/shared
 COPY --from=kde / /
 COPY --from=dev / /
 COPY --from=gaming / /
