@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+set -ouex pipefail
+
+AKMODNV_PATH="${AKMODNV_PATH:-/tmp/akmods-rpms}"
+FRELEASE="$(rpm -E %fedora)"
+
+echo "=== Installing ublue-os-nvidia-addons ==="
+dnf5 -y install "${AKMODNV_PATH}"/ublue-os/ublue-os-nvidia-addons-*.rpm
+
+echo "=== Installing MULTILIB mesa packages ==="
+dnf5 -y --allowerasing install \
+    mesa-dri-drivers.i686 \
+    mesa-filesystem.i686 \
+    mesa-libEGL.i686 \
+    mesa-libGL.i686 \
+    mesa-libgbm.i686 \
+    mesa-vulkan-drivers.i686
+
+echo "=== Enabling fedora-nvidia repo ==="
+dnf5 config-manager setopt fedora-nvidia.enabled=1 nvidia-container-toolkit.enabled=1
+
+echo "=== Disabling fedora-multimedia if present ==="
+if dnf5 repolist --enabled | grep -q "fedora-multimedia"; then
+    NEGATIVO17_MULT_PREV_ENABLED=Y
+    echo "disabling negativo17-fedora-multimedia to ensure negativo17-fedora-nvidia is used"
+    dnf5 config-manager setopt fedora-multimedia.enabled=0
+else
+    NEGATIVO17_MULT_PREV_ENABLED=N
+fi
+
+echo "=== Enabling ublue-os-staging COPR ==="
+if [[ -f /etc/yum.repos.d/_copr_ublue-os-staging.repo ]]; then
+    sed -i 's@enabled=0@enabled=1@g' /etc/yum.repos.d/_copr_ublue-os-staging.repo
+elif [[ -f /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:ublue-os:staging.repo ]]; then
+    sed -i 's@enabled=0@enabled=1@g' /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:ublue-os:staging.repo
+else
+    curl -Lo /etc/yum.repos.d/_copr_ublue-os-staging.repo \
+        "https://copr.fedorainfracloud.org/coprs/ublue-os/staging/repo/fedora-${FRELEASE}/ublue-os-staging-fedora-${FRELEASE}.repo"
+fi
+
+echo "=== Sourcing nvidia-vars ==="
+source "${AKMODNV_PATH}"/kmods/nvidia-vars
+echo "KERNEL_VERSION=${KERNEL_VERSION} NVIDIA_AKMOD_VERSION=${NVIDIA_AKMOD_VERSION} DIST_ARCH=${DIST_ARCH}"
+
+echo "=== Installing NVIDIA driver packages ==="
+NVIDIA_DRIVER_VERSION="${NVIDIA_AKMOD_VERSION%-*}"
+NVIDIA_ML_PKGS=()
+if dnf5 repoquery --qf '%{version}\n' nvidia-driver-common 2>/dev/null | grep -qxF "${NVIDIA_DRIVER_VERSION}"; then
+    echo "Using nvidia-driver-common for NVIDIA ${NVIDIA_DRIVER_VERSION} (provides libnvidia-ml/libnvidia-gpucomp)"
+    if dnf5 repoquery --qf '%{version}\n' nvidia-driver-common.i686 2>/dev/null | grep -qxF "${NVIDIA_DRIVER_VERSION}"; then
+        NVIDIA_ML_PKGS+=(nvidia-driver-common.i686)
+    fi
+else
+    echo "Using legacy NVIDIA split library packages for NVIDIA ${NVIDIA_DRIVER_VERSION}"
+    NVIDIA_ML_PKGS+=(libnvidia-ml.i686)
+fi
+
+dnf5 -y --allowerasing install \
+    libnvidia-fbc \
+    "${NVIDIA_ML_PKGS[@]}" \
+    libva-nvidia-driver \
+    nvidia-driver \
+    nvidia-driver-cuda \
+    nvidia-driver-cuda-libs.i686 \
+    nvidia-driver-libs.i686 \
+    nvidia-settings \
+    nvidia-container-toolkit
+
+echo "=== Installing kmod-nvidia ==="
+dnf5 -y --allowerasing install \
+    "${AKMODNV_PATH}"/kmods/kmod-nvidia-"${KERNEL_VERSION}"-"${NVIDIA_AKMOD_VERSION}"."${DIST_ARCH}".rpm
+
+echo "=== Verifying kmod-nvidia / nvidia-driver version match ==="
+KMOD_VERSION="$(rpm -q --queryformat '%{VERSION}' kmod-nvidia)"
+DRIVER_VERSION="$(rpm -q --queryformat '%{VERSION}' nvidia-driver)"
+if [ "${KMOD_VERSION}" != "${DRIVER_VERSION}" ]; then
+    echo "Error: kmod-nvidia version (${KMOD_VERSION}) does not match nvidia-driver version (${DRIVER_VERSION})"
+    exit 1
+fi
+
+echo "=== Post-install: disabling repos ==="
+dnf5 config-manager setopt fedora-nvidia.enabled=0 nvidia-container-toolkit.enabled=0
+if [[ -f /etc/yum.repos.d/_copr_ublue-os-staging.repo ]]; then
+    sed -i 's@enabled=1@enabled=0@g' /etc/yum.repos.d/_copr_ublue-os-staging.repo
+elif [[ -f /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:ublue-os:staging.repo ]]; then
+    sed -i 's@enabled=1@enabled=0@g' /etc/yum.repos.d/_copr:copr.fedorainfracloud.org:ublue-os:staging.repo
+fi
+
+echo "=== Post-install: enabling services and SELinux module ==="
+systemctl enable ublue-nvctk-cdi.service
+semodule --verbose --install /usr/share/selinux/packages/nvidia-container.pp
+
+echo "=== Post-install: dracut force-load configuration ==="
+sed -i 's@omit_drivers@force_drivers@g' /usr/lib/dracut/dracut.conf.d/99-nvidia.conf
+sed -i 's@ nvidia @ i915 amdgpu nvidia @g' /usr/lib/dracut/dracut.conf.d/99-nvidia.conf
+
+echo "=== Re-enabling fedora-multimedia ==="
+if [ "${NEGATIVO17_MULT_PREV_ENABLED}" = "Y" ]; then
+    dnf5 config-manager setopt fedora-multimedia.enabled=1
+fi

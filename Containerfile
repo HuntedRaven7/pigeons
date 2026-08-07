@@ -38,12 +38,14 @@ COPY . /ctx
 
 # NVIDIA driver stack. Runs while /etc/os-release is still Fedora 44 so dnf
 # can resolve the Fedora repos, then regenerates the initramfs so the driver
-# is force-loaded at boot.
+# is force-loaded at boot. We bypass nvidia-install.sh and run the steps
+# explicitly with --allowerasing to handle any package conflicts from the
+# Hummingbird base.
 COPY --from=akmods-nvidia /rpms /tmp/akmods-rpms
-RUN bash /tmp/akmods-rpms/ublue-os/nvidia-install.sh \
- && rm -rf /tmp/akmods-rpms \
- && /ctx/build_files/build-initramfs \
- && rm -rf /ctx
+RUN /ctx/build_files/install-nvidia-drivers \
+  && rm -rf /tmp/akmods-rpms \
+  && /ctx/build_files/build-initramfs \
+  && rm -rf /ctx
 
 # Restore the Hummingbird OS identity
 COPY --from=base /etc/os-release /etc/os-release
