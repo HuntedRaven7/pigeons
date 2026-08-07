@@ -6,7 +6,7 @@ cp -avf "/ctx/system_files"/. /
 
 dnf -y install dnf5-plugins 
 
-dnf -y copr enable --hub copr.fedorainfracloud.org lionheartp/Hyprland fedora-44-x86_64
+dnf -y copr enable --hub copr.fedorainfracloud.org lionheartp/Hyprland fedora-rawhide-x86_64
 dnf repolist --enabled
 dnf repoquery cairo
 dnf repoquery mesa-libEGL
