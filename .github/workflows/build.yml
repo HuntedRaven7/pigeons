@@ -63,6 +63,14 @@ jobs:
             ${{ matrix.flavor }} \
             latest
 
+      # This is optional, this provides smaller delta updates
+      - name: Rechunk with Chunkah
+        id: rechunk
+        run: |
+          sudo -E $(command -v just) rechunk \
+            "${IMAGE_REGISTRY}/${{ matrix.flavor }}" \
+            latest
+
       - name: Generate Build Tags
         id: gen-build-tags
         run: |
@@ -181,6 +189,14 @@ jobs:
         id: build-image
         run: |
           sudo -E $(command -v just) build \
+            ${IMAGE_NAME} \
+            latest
+
+      # This is optional, this provides smaller delta updates
+      - name: Rechunk with Chunkah
+        id: rechunk
+        run: |
+          sudo -E $(command -v just) rechunk \
             ${IMAGE_NAME} \
             latest
 

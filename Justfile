@@ -127,6 +127,7 @@ build $target_image=image_name $tag=default_tag:
     # Lowercase the registry so ghcr.io resolves the just-pushed flavor images
     IMAGE_REGISTRY=$(echo "ghcr.io/{{ repo_organization }}" | tr '[:upper:]' '[:lower:]')
     PODMAN_BUILD_ARGS+=("--build-arg" "IMAGE_REGISTRY=${IMAGE_REGISTRY}")
+    PODMAN_BUILD_ARGS+=("--build-arg" "IMAGE_NAME=${target_image}")
 
     podman build "${PODMAN_BUILD_ARGS[@]}" .
 
@@ -171,7 +172,7 @@ rechunk $target_image=image_name $tag=default_tag:
 
     # You may omit the current directory here if you are confident that you
     # won't run out of space on /tmp for your image
-    CHUNKAH_OUTPUT_DIR="$(mktemp -d ./"${target_image}"_chunkah_XXXXXX)"
+    CHUNKAH_OUTPUT_DIR="$(mktemp -d ./chunkah_XXXXXX)"
 
     trap 'rm -f "${CHUNKAH_CONFIG_FILE}"; rm -rf "${CHUNKAH_OUTPUT_DIR}"' EXIT
     podman inspect "${target_image}:${tag}" > "${CHUNKAH_CONFIG_FILE}"

@@ -5,6 +5,7 @@
 # filesystems onto the Hummingbird bootc base, then adds the NVIDIA driver
 # stack on top of the OGC fc44 kernel that the task images provide.
 
+ARG IMAGE_NAME="pigeon"
 ARG IMAGE_REGISTRY="ghcr.io/huntedraven7"
 ARG DEFAULT_TAG="latest"
 ARG KERNEL_VERSION="7.1.6-ogc4.1.fc44.x86_64"
@@ -22,6 +23,9 @@ FROM ghcr.io/ublue-os/brew:latest AS brew
 FROM ghcr.io/ublue-os/akmods-nvidia-open:ogc-44-${KERNEL_VERSION} AS akmods-nvidia
 
 FROM base
+
+# Redeclare to expose the build arg to RUN inside this stage
+ARG IMAGE_NAME="pigeon"
 
 # Layer the f44 task images onto the Hummingbird base + Brew
 COPY --from=brew /system_files /system_files/shared

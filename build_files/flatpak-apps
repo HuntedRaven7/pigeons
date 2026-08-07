@@ -1,0 +1,9 @@
+# Flatpaks baked into the image, one ref per line. Comments start with '#'
+# and empty lines are ignored.
+#
+# Examples:
+# org.mozilla.firefox
+# org.kde.kdenlive
+# org.gnome.Calculator
+
+org.mozilla.firefox
