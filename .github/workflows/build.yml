@@ -109,19 +109,39 @@ jobs:
           digest=$(sudo -E podman inspect --format '{{index .RepoDigests 0}}' "${IMAGE_REGISTRY}/${{ matrix.flavor }}:latest" | cut -d@ -f2)
           echo "digest=${digest}" >> $GITHUB_OUTPUT
 
+  sign_flavors:
+    name: Sign ${{ matrix.flavor }}
+    runs-on: ubuntu-24.04
+    needs: build_flavors
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: ["kde", "dev", "gaming"]
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
         with:
           cosign-release: 'v3.1.2'
 
       - name: Sign container image
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          DIGEST: ${{ steps.push-image.outputs.digest }}
         run: |
-          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${{ matrix.flavor }}@${DIGEST}
+          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${{ matrix.flavor }}:latest
 
   build_main:
     name: Build and push pigeon
@@ -211,16 +231,34 @@ jobs:
           digest=$(< /tmp/digestfile)
           echo "digest=${digest}" >> $GITHUB_OUTPUT
 
+  sign_main:
+    name: Sign pigeon
+    runs-on: ubuntu-24.04
+    needs: build_main
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
+    env:
+      IMAGE_NAME: ${{ github.event.repository.name }}
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
         with:
           cosign-release: 'v3.1.2'
 
       - name: Sign container image
-        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          DIGEST: ${{ steps.push-image.outputs.digest }}
         run: |
-          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}
+          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
