@@ -55,6 +55,7 @@ jobs:
           # Lowercase the image uri https://github.com/macbre/push-to-ghcr/issues/12
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
 
+      # This actually builds the flavor image
       - name: Build Flavor Image
         id: build-image
         run: |
@@ -87,6 +88,7 @@ jobs:
           done
 
       # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
+      # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
       - name: Login to GitHub Container Registry
         uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -103,45 +105,36 @@ jobs:
         run: |
           set -euox pipefail
           for tag in ${ALIAS_TAGS}; do
-            sudo -E podman push "${IMAGE_REGISTRY}/${{ matrix.flavor }}:${tag}"
+            sudo -E podman push --digestfile=/tmp/digestfile "${IMAGE_REGISTRY}/${{ matrix.flavor }}:${tag}"
           done
 
-          digest=$(sudo -E podman inspect --format '{{index .RepoDigests 0}}' "${IMAGE_REGISTRY}/${{ matrix.flavor }}:latest" | cut -d@ -f2)
+          digest=$(< /tmp/digestfile)
+
           echo "digest=${digest}" >> $GITHUB_OUTPUT
 
-  sign_flavors:
-    name: Sign ${{ matrix.flavor }}
-    runs-on: ubuntu-24.04
-    needs: build_flavors
-    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
-    strategy:
-      fail-fast: false
-      matrix:
-        flavor: ["kde", "dev", "gaming"]
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    steps:
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+      # This section is optional and only needs to be enabled if you plan on distributing
+      # your project for others to consume. You will need to create a public and private key
+      # using Cosign and save the private key as a repository secret in Github for this workflow
+      # to consume. For more details, review the image signing section of the README.
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         with:
+          # be careful when upgrading major versions
           cosign-release: 'v3.1.2'
 
       - name: Sign container image
+        id: sign-image
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
+          COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          DIGEST: ${{ steps.push-image.outputs.digest }}
         run: |
-          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${{ matrix.flavor }}:latest
+          # https://github.com/containers/container-libs/issues/388
+          # https://github.com/coreos/rpm-ostree/issues/5509
+          # use old bundle format, so we can use newer cosign 3.X.X instead of 2.X.X
+          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${{ matrix.flavor }}@${DIGEST}
 
   build_main:
     name: Build and push pigeon
@@ -154,6 +147,7 @@ jobs:
       id-token: write
 
     steps:
+      # These stage versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -172,10 +166,12 @@ jobs:
         id: image-name
         run: |
           IMAGE_NAME=$(just image_name)
+
           echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
 
       - name: Prepare environment
         run: |
+          # Lowercase the image uri https://github.com/macbre/push-to-ghcr/issues/12
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
           echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
 
@@ -229,36 +225,29 @@ jobs:
           done
 
           digest=$(< /tmp/digestfile)
+
           echo "digest=${digest}" >> $GITHUB_OUTPUT
 
-  sign_main:
-    name: Sign pigeon
-    runs-on: ubuntu-24.04
-    needs: build_main
-    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && secrets.SIGNING_SECRET != ''
-    env:
-      IMAGE_NAME: ${{ github.event.repository.name }}
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    steps:
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
+      # This section is optional and only needs to be enabled if you plan on distributing
+      # your project for others to consume. You will need to create a public and private key
+      # using Cosign and save the private key as a repository secret in Github for this workflow
+      # to consume. For more details, review the image signing section of the README.
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         with:
+          # be careful when upgrading major versions
           cosign-release: 'v3.1.2'
 
       - name: Sign container image
+        id: sign-image
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
+          COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          DIGEST: ${{ steps.push-image.outputs.digest }}
         run: |
-          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${IMAGE_NAME}:latest
+          # https://github.com/containers/container-libs/issues/388
+          # https://github.com/coreos/rpm-ostree/issues/5509
+          # use old bundle format, so we can use newer cosign 3.X.X instead of 2.X.X
+          cosign sign -y --new-bundle-format=false --use-signing-config=false --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}
