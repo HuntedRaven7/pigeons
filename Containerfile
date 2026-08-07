@@ -26,6 +26,7 @@ FROM base
 
 # Redeclare to expose the build arg to RUN inside this stage
 ARG IMAGE_NAME="pigeon"
+ENV IMAGE_NAME=${IMAGE_NAME}
 
 # Layer the f44 task images onto the Hummingbird base + Brew
 COPY --from=brew /system_files /system_files/shared
