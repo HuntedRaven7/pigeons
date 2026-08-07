@@ -124,7 +124,38 @@ build $target_image=image_name $tag=default_tag:
     # This actually builds the image!
     PODMAN_BUILD_ARGS=("${BUILD_ARGS[@]}" "${LABELS[@]}" --pull=newer --tag "${target_image}:${tag}" --file Containerfile)
 
+    # Lowercase the registry so ghcr.io resolves the just-pushed flavor images
+    IMAGE_REGISTRY=$(echo "ghcr.io/{{ repo_organization }}" | tr '[:upper:]' '[:lower:]')
+    PODMAN_BUILD_ARGS+=("--build-arg" "IMAGE_REGISTRY=${IMAGE_REGISTRY}")
+
     podman build "${PODMAN_BUILD_ARGS[@]}" .
+
+# Build a flavor image (kde, dev or gaming) from containerfiles/Containerfile
+build-flavor $flavor $tag=default_tag:
+    #!/usr/bin/env bash
+
+    set -euox pipefail
+
+    if [[ -z "$(git status -s)" ]]; then
+        GIT_SHA=$(git rev-parse --short HEAD)
+    else
+        GIT_SHA="main"
+    fi
+
+    IMAGE_REGISTRY=$(echo "ghcr.io/{{ repo_organization }}" | tr '[:upper:]' '[:lower:]')
+
+    podman build \
+        --pull=newer \
+        --label "org.opencontainers.image.title={{ flavor }}" \
+        --label "org.opencontainers.image.description={{ image_desc }}" \
+        --label "org.opencontainers.image.vendor={{ repo_organization }}" \
+        --label "org.opencontainers.image.source=https://github.com/{{ repo_organization }}/{{ image_name }}/tree/${GIT_SHA}" \
+        --label "org.opencontainers.image.url=https://github.com/{{ repo_organization }}/{{ image_name }}" \
+        --label "org.opencontainers.image.version={{ default_tag }}.$(date +%Y%m%d)-${GIT_SHA}" \
+        --target "{{ flavor }}" \
+        --tag "${IMAGE_REGISTRY}/{{ flavor }}:{{ tag }}" \
+        --file containerfiles/Containerfile \
+        .
 
 # Split the image for smaller updates (New)!
 rechunk $target_image=image_name $tag=default_tag:
@@ -355,7 +386,7 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 
 # Build an ISO virtual machine image
 [group('Build Virtal Machine Image')]
-build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
+build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Rebuild a QCOW2 virtual machine image
 [group('Build Virtal Machine Image')]
@@ -367,7 +398,7 @@ rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_reb
 
 # Rebuild an ISO virtual machine image
 [group('Build Virtal Machine Image')]
-rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
+rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Run a virtual machine with the specified image type and configuration
 _run-vm $target_image $tag $type $config:
@@ -421,7 +452,7 @@ run-vm-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-
 
 # Run a virtual machine from an ISO
 [group('Run Virtal Machine')]
-run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso.toml")
+run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Run a virtual machine using systemd-vmspawn
 [group('Run Virtal Machine')]

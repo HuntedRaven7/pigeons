@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+set -oue pipefail
+
+# Adapted from https://github.com/ublue-os/bazzite/blob/main/build_files/install-kernel-akmods
+# Swap the stock Fedora kernel for the ublue "OGC" kernel and install the
+# akmods prebuilt against it. The akmods image is mounted at /tmp/rpms
+# (kernel-rpms, common, kmods, ublue-os) with the extra kmods at
+# /tmp/rpms/extra and /tmp/rpms/kmods-extra.
+
+# Signing key + COPR repo configs shipped inside the akmods image
+dnf5 -y install /tmp/rpms/ublue-os/ublue-os-akmods-addons-*.rpm
+
+# Create shims to bypass kernel install triggering dracut/rpm-ostree
+pushd /usr/lib/kernel/install.d
+mv 05-rpmostree.install 05-rpmostree.install.bak
+mv 50-dracut.install 50-dracut.install.bak
+printf '%s\n' '#!/bin/sh' 'exit 0' > 05-rpmostree.install
+printf '%s\n' '#!/bin/sh' 'exit 0' > 50-dracut.install
+chmod +x 05-rpmostree.install 50-dracut.install
+popd
+
+# Remove the stock kernel
+for pkg in kernel kernel{-core,-modules,-modules-core,-modules-extra,-tools-libs,-tools}; do
+    if rpm -q "${pkg}" >/dev/null 2>&1; then
+        rpm --erase "${pkg}" --nodeps
+    fi
+done
+
+# Clean up leftovers not covered by the kernel packages
+rm -rf /usr/lib/modules
+
+# Install the OGC kernel from the akmods image
+dnf5 -y install \
+    /tmp/kernel-rpms/kernel-[0-9]*.rpm \
+    /tmp/kernel-rpms/kernel-core-*.rpm \
+    /tmp/kernel-rpms/kernel-modules-*.rpm \
+    /tmp/kernel-rpms/kernel-devel-*.rpm
+
+# Lock the kernel so dnf upgrades don't pull a stock kernel back in
+dnf5 versionlock add kernel kernel-devel kernel-devel-matched kernel-core kernel-modules
+
+# Install kmods prebuilt against the OGC kernel
+/ctx/build_files/install-kmods \
+    /tmp/rpms/{common,kmods}/*framework-laptop*.rpm \
+    /tmp/rpms/{common,kmods}/*openrazer*.rpm \
+    /tmp/rpms/{common,kmods}/*v4l2loopback*.rpm \
+    /tmp/rpms/{common,kmods}/*vhba*.rpm \
+    /tmp/rpms/{common,kmods}/*xone*.rpm \
+    /tmp/rpms/{common,kmods}/*xpadneo*.rpm \
+    /tmp/rpms/{common,kmods}/*wl*.rpm
+
+# Restore the kernel-install hooks
+pushd /usr/lib/kernel/install.d
+mv -f 05-rpmostree.install.bak 05-rpmostree.install
+mv -f 50-dracut.install.bak 50-dracut.install
+popd

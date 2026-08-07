@@ -1,0 +1,12 @@
+.git
+.gitignore
+.github
+output
+_build_*
+*_chunkah_*
+previous.manifest.json
+changelog.md
+LICENSE
+README.md
+artifacthub-repo.yml
+cosign.key

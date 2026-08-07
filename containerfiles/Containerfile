@@ -1,0 +1,84 @@
+# Fedora 44 task images for pigeon (kde / dev / gaming).
+#
+# The shared `base` stage:
+#   - installs common packages on quay.io/fedora/fedora-bootc:44
+#   - swaps the stock Fedora kernel for the ublue "OGC" kernel (Bazzite approach)
+#   - installs ublue akmods prebuilt against that kernel
+#   - regenerates the initramfs
+#
+# Each flavor stage is `FROM base`, installs its task-specific packages and is
+# pushed to the registry as ghcr.io/<owner>/<flavor>:<tag>.
+#
+# The root Containerfile then layers these images onto the Hummingbird base and
+# adds the NVIDIA driver stack.
+
+ARG FEDORA_VERSION="44"
+ARG ARCH="x86_64"
+ARG KERNEL_FLAVOR="ogc"
+ARG KERNEL_VERSION="7.1.6-ogc4.1.fc44.x86_64"
+ARG AKMODS_REPO="ghcr.io/ublue-os/akmods"
+
+# Kernel RPMs + prebuilt kmods + akmods signing key, built against $KERNEL_VERSION
+FROM ${AKMODS_REPO}:${KERNEL_FLAVOR}-${FEDORA_VERSION}-${KERNEL_VERSION} AS akmods
+
+# Extra kmods (sim racing / peripheral drivers), built against $KERNEL_VERSION
+FROM ${AKMODS_REPO}-extra:${KERNEL_FLAVOR}-${FEDORA_VERSION}-${KERNEL_VERSION} AS akmods-extra
+
+FROM quay.io/fedora/fedora-bootc:${FEDORA_VERSION} AS base
+ARG FEDORA_VERSION
+ARG KERNEL_FLAVOR
+ARG KERNEL_VERSION
+
+COPY . /ctx
+
+# Common packages (includes dnf5-plugins needed for `dnf5 copr` / `config-manager`)
+RUN --mount=type=bind,from=akmods,src=/kernel-rpms,dst=/tmp/kernel-rpms \
+    --mount=type=bind,from=akmods,src=/rpms,dst=/tmp/rpms \
+    --mount=type=bind,from=akmods-extra,src=/rpms/extra,dst=/tmp/rpms/extra \
+    --mount=type=bind,from=akmods-extra,src=/rpms/kmods,dst=/tmp/rpms/kmods-extra \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/lib/dnf \
+    /ctx/build_files/build.sh
+
+# Swap in the OGC kernel + prebuilt kmods
+RUN --mount=type=bind,from=akmods,src=/kernel-rpms,dst=/tmp/kernel-rpms \
+    --mount=type=bind,from=akmods,src=/rpms,dst=/tmp/rpms \
+    --mount=type=bind,from=akmods-extra,src=/rpms/extra,dst=/tmp/rpms/extra \
+    --mount=type=bind,from=akmods-extra,src=/rpms/kmods,dst=/tmp/rpms/kmods-extra \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/lib/dnf \
+    /ctx/build_files/install-kernel-akmods
+
+# Regenerate the initramfs for the OGC kernel
+RUN --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/lib/dnf \
+    /ctx/build_files/build-initramfs
+
+FROM base AS kde
+ARG IMAGE_NAME="kde"
+RUN --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/lib/dnf \
+    /ctx/build_files/flavors/kde.sh
+RUN /ctx/build_files/cleanup
+RUN /ctx/build_files/finalize
+RUN bootc container lint
+
+FROM base AS dev
+ARG IMAGE_NAME="dev"
+RUN --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/lib/dnf \
+    /ctx/build_files/flavors/dev.sh
+RUN /ctx/build_files/cleanup
+RUN /ctx/build_files/finalize
+RUN bootc container lint
+
+FROM base AS gaming
+ARG IMAGE_NAME="gaming"
+RUN --mount=type=bind,from=akmods-extra,src=/rpms/extra,dst=/tmp/rpms/extra \
+    --mount=type=bind,from=akmods-extra,src=/rpms/kmods,dst=/tmp/rpms/kmods-extra \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/lib/dnf \
+    /ctx/build_files/flavors/gaming.sh
+RUN /ctx/build_files/cleanup
+RUN /ctx/build_files/finalize
+RUN bootc container lint
