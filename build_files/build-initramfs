@@ -12,6 +12,18 @@ else
 fi
 
 QUALIFIED_KERNEL="$(dnf5 repoquery --installed --queryformat='%{evr}.%{arch}' "kernel${KERNEL_SUFFIX:+-${KERNEL_SUFFIX}}")"
+
+# The final pigeon image layers the f44 task images onto the Hummingbird
+# base, so /usr/lib/modules can contain the base kernel tree in addition to
+# the installed OGC kernel. bootc lint rejects multiple kernel trees; drop
+# anything that is not the installed kernel before regenerating the initramfs.
+for kver in /usr/lib/modules/*; do
+    if [[ -d "${kver}" && "$(basename "${kver}")" != "${QUALIFIED_KERNEL}" ]]; then
+        echo "Removing stray kernel tree: ${kver}"
+        rm -rf "${kver}"
+    fi
+done
+
 /usr/bin/dracut --no-hostonly --kver "$QUALIFIED_KERNEL" --reproducible --zstd -v --add ostree --add fido2 -f "/usr/lib/modules/$QUALIFIED_KERNEL/initramfs.img"
 
 chmod 0600 /usr/lib/modules/"$QUALIFIED_KERNEL"/initramfs.img
