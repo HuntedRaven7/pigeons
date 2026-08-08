@@ -38,11 +38,13 @@ COPY . /ctx
 
 # NVIDIA driver stack. Runs while /etc/os-release is still Fedora 44 so dnf
 # can resolve the Fedora repos, then regenerates the initramfs so the driver
-# is force-loaded at boot. We bypass nvidia-install.sh and run the steps
-# explicitly with --allowerasing to handle any package conflicts from the
-# Hummingbird base.
+# is force-loaded at boot. nvidia-install.sh is shipped inside the
+# akmods-nvidia image and installs the prebuilt nvidia-driver / kmod RPMs
+# directly from /rpms (built against the OGC kernel), only pulling mesa
+# multilib, nvidia-container-toolkit, egl-wayland and libva-nvidia-driver
+# from repos.
 COPY --from=akmods-nvidia /rpms /tmp/akmods-rpms
-RUN /ctx/build_files/install-nvidia-drivers \
+RUN bash /tmp/akmods-rpms/ublue-os/nvidia-install.sh \
   && rm -rf /tmp/akmods-rpms \
   && /ctx/build_files/build-initramfs \
   && rm -rf /ctx
